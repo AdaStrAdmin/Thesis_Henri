@@ -1,0 +1,101 @@
+\chapter{Preliminaries}\label{ch:preliminaries}
+
+\textbf{TODO re-phrase after rewrite of Intro/Proposal}
+% Use natural language and let the reader fill the dots of the low-level patterns. My go-to example of how excellent maths hardly use any math. notation: [An introduction to compressive sampling](https://authors.library.caltech.edu/10092/1/CANieeespm08.pdf)
+
+\paragraph{Mathematical definition of a graph}$\,$
+
+A heterogeneous graph \(G\) is a tuple \(G = (\mathcal{V}, \mathcal{E}, \mathcal{A}, \mathcal{R})\). Where \(\mathcal{V}\) is the set of nodes \(v \in \mathcal{V}\),
+\(\mathcal{E}\) is the set of edges \(e = (s, t) \in \mathcal{E}, s, t \in \mathcal{V}\), \(\mathcal{A}\) is the set of
+node types with \(\tau (v): \mathcal{V} \rightarrow \mathcal{A}\) and \(\mathcal{R}\) is the set of edge types with \(\phi(e): \mathcal{E} \rightarrow \mathcal{R}\).
+
+
+The challenge of a GNN is to embed the nodes $\mathcal{V}$ and edges $\mathcal{E}$ in such a way as to deliver good performance on a variety of downstream tasks, e.g. classifying new nodes or providing recommendations.
+
+One solution for this has been the Heterogeneous Graph Transformer (HGT)~\cite{hu2020heterogeneous}, 
+which works by updating the node representation \(H^l [t]\) of node \(t\) in layer \(l\) as
+\[ H^l[t] \leftarrow {Aggregate}_{\forall s \in N(t), \forall e \in E(s, t)} ({Attention}_{HGT}(s, e, t) \cdot Message(s,e,t) ), \]
+where $ {Attention}_{HGT}(s, e, t) $ and $ Message(s,e,t) $ denote the attention of a target node ($ t $) for a source node ($ s $) and the message transmitted from a source node ($ s $) to a target node ($ t $).
+
+
+% attention
+\paragraph{Attention}$\,$
+
+We have 
+\[ {Attention}_{HGT} (s, e, t) = Softmax_{\forall s \in N(t)} ( \|_{i \in [1, h]} ATT-head^i (s, e, t)) \]
+where
+\begin{align*}
+    ATT-head^i (s,e,t ) &= (K^i (s) W^{ATT}_{\phi(e)} Q^i (t)^T ) \cdot \frac{\mu_{<\tau(s), \phi(e), \tau(t)>}}{\sqrt{d}} \\
+    K^i (s) &= {K-linear}^{i}_{\tau(s)} (H^{l-1}[s]) \\
+    Q^i (t) &= {Q-linear}^{i}_{\tau(t)} (H^{l-1}[t]) \\
+\end{align*}
+
+And K-linear and Q-linear are linear transformations \(\mathbb{R}^d \rightarrow \mathbb{R}^{\frac{d}{h}}\).
+
+\(W^{ATT}_{\phi(e)} \in \mathbb{R}^{\frac{d}{h} \times \frac{d}{h}}\) are distinct weight matrices for each edge type, and
+\(\mu_{<\tau(s), \phi(e), \tau(t)>} \in \mathbb{R}^{|\mathcal{A}| \times |\mathcal{R}| \times |\mathcal{A}|}\) is a prior tensor denoting the significance of each meta-relation triplet.
+
+\(\|\) concatenates the \(h\) attention heads of dimension \(\mathbb{R}^{\frac{d}{h}}\) to an output vector of dimension \(\mathbb{R}^{d}\), and
+the softmax at the end ensures that \(\sum_{\forall s \in N(t)} Attention_{HGT} (s, e, t) = \mathbf{1}_{h \times 1}\).
+
+
+% messaging
+\paragraph{Messaging}$\,$
+
+The messaging is implemented as
+\[ Message_{HGT} (s, e, t) = \|_{i \in [1, h]} MSG-head^i (s, e, t) \]
+with
+\[ MSG-head^i (s,e,t) = M-Linear^{i}_{\tau(s)} (H^{l-1}[s])W^{MSG}_{\phi(e)}. \]
+
+Then, since  \(\sum_{\forall s \in N(t)} Attention_{HGT} (s, e, t) = \mathbf{1}_{h \times 1}\), you can aggregate with
+a simple sum:
+\[ \tilde{H}^l [t] = \oplus_{\forall s \in N(t)} ( Attention_{HGT} (s, e, t) \cdot Message_{HGT} (s, e, t)) \]
+
+Finally, map back to \(t\)'s type-specific distribution
+\[ H^l [t] = A-Linear_{\tau(t)} (\sigma (\tilde{H}^l [t] )) + H^{l-1} [t] \]
+
+This produces impressive results, but is so far only applicable if the input data is already type-labeled. It is also only
+better than previous methods if the data is sufficiently heterogeneous.
+
+\paragraph{Subtypes}$,$
+
+To organically extract and model heterogeneity, we introduce a new set of \emph{subtypes} \(\mathcal{B}\) with a corresponding function
+\(\beta(v,t) : \mathcal{V} \times \mathcal{A} \cup \mathcal{B} \rightarrow \mathcal{B}\), and create corresponding \(\beta-Linear\) functions to operate on the subtypes \(\beta-Linear^{i}_{\tau(s)}\).
+
+\paragraph{Importance Computation}$\,$
+
+To evaluate when to spawn new subtypes, we evaluate the relative importance of expanding the currently existing types.
+
+To do this, we assign each node $v$ with an importance $\psi_v$ depending on the error $\xi_t$ at epoch $t$:
+
+\[ \psi_{vt} = \xi_t \cdot \eta_t + (1 - \eta_t) \]
+
+Where $\eta_t$ is the learning rate at time $t$ with $\eta_0 = \eta_{max}$ and
+
+\[ \eta_{t+1} = \eta_t + \frac{1}{2} (\eta_{max} - \eta_{min})\left(1 - \cos \left( \frac{\pi}{T}\right)\right) \]
+
+where $T$ is the total number of epochs.
+
+The importance of a type $\gamma \in \mathcal{A} \cup \mathcal{B}$ is then
+
+\[ \psi_\gamma = \left(\sum_{v \in \gamma} \psi_v \right) \cdot \frac{1}{|\gamma|} \]
+
+We then spawn new subtypes whenever $\psi_\gamma$ passes a chosen threshold.
+%% FEEDBACK TAKEN FROM PROPOSAL
+% 
+% D.
+% Hard to read. I don't want to have to go through the math and index in my head what symbol corresponds to what meaning.
+% Try to formulate as much as possible only with natural language and in abstract general patterns.
+% 
+% Also, as much as possible, try to express what we're doing in the established language of the community, e.g., [What Does BERT Look At? An Analysis of BERT's Attention](https://arxiv.org/abs/1906.04341). So, use the expression attention amplitude?
+% 
+% I see "\cos \left( \frac{\pi}{T}\right)\right)" so I assume this is the cosine distance. That's very arbitrary. By noting we use the cosine distance here in the introduction, we block ourselves from using another distance and we expose our reader to too much specific information they don't need: they only need to think of our distance as _one distance_, not specifically cosine distance. When we say cosine distance, our reader would start wondering why we use cosine distance, possibly what that is, and whether there are other distances that work better. And it's just extra information, extra cognitive load, they don't need at the moment. If you already have specific implementations in mind, present them like I did in Nebi's Msc. thesis proposal ([Overleaf](https://www.overleaf.com/4562512534hzxpjkppbcjw)): present the general patterns, and then cast as a very small side information that _as an example_ specific implementation XYZ can be used.
+% 
+% Said differently, don't be afraid to leave things undefined, as abstract placeholders.
+% The specific implementations are arbitrary and it's not very relevant what specific implementation we pick beyond a level of specificity. E.g., we can say we use an attention mechanism and only specify in later chapters what different implementations we tried out – like how GraphSAGE had different aggregation implementation, average, RNN, and others, and they did not bother with what implementation they specifically picked in the introduction because it's too low-level. What matters are first general patterns.
+% 
+% 
+% "By noting we use the cosine distance here in the introduction, we block ourselves from using another distance"
+% Which is very problematic because we do need the flexibility in the means we use. I want us to use @Hassan's form of importance, as said in [Organic Meta](https://adastruct.slack.com/archives/C022U4MU8BV/p1682343482796529?thread_ts=1682343422.127599&cid=C022U4MU8BV), and that is not be based on cosine distance. We use some masking mechanisms, like in masked language tasks in natural language modeling, and we try to infer the score we would obtain when masking.
+% By leaving the specific distance used open, we leave ourselves room to plug in other implementations without having to change any of our top-level diagram or text.
+% 

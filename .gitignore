@@ -1,0 +1,15 @@
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+/proposal_main.log
+*.out
+/proposal_main.pdf
+*.run.xml
+/.vale.ini
+/styles/
+/thesis_main.pdf
+/thesis_main.toc
+/thesis_main.log
